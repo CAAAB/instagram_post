@@ -1,0 +1,5 @@
+requests
+selenium
+webdriver-manager
+instagrapi
+# A line commenting that a temporary image hosting library might be added later
