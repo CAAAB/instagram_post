@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import datetime
 import re
+from dotenv import load_dotenv
 
 # Third-party library imports
 import requests  # Needs to be installed: pip install requests
@@ -19,15 +20,26 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 
-# Placeholder variables / Configuration section
-CITY_CODES = ["PA"]  # User will fill this, adding "PA" for testing
-INSTAGRAM_USERNAME = ""  # User will fill this
-INSTAGRAM_PASSWORD = ""  # User will fill this
-IMGBB_API_KEY = ""  # User will fill this - Get from https://imgbb.com/api
-TEMPORARY_IMAGE_HOST_API_KEY = ""  # If a specific service is decided upon later (can be same as IMGBB or different)
+load_dotenv()
+
+# --- User Configuration (loaded from .env file or defaults) ---
+INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME")
+INSTAGRAM_PASSWORD = os.getenv("INSTAGRAM_PASSWORD")
+# IMGBB_API_KEY = os.getenv("IMGBB_API_KEY") # Removed as per instruction
+
+CITY_CODES_STR = os.getenv("CITY_CODES", "")  # Default to empty string
+CITY_CODES = [code.strip().upper() for code in CITY_CODES_STR.split(',') if code.strip()]
+if not CITY_CODES:
+    # Provide a default or example if not set in .env, useful for first run/dev
+    CITY_CODES = ["PA"]
+    print("Warning: CITY_CODES not found in .env, using default: ['PA']")
+
+
+# Default settings (can be overridden by .env variables if desired later by adapting the code)
 DAILY_POST_LIMIT = 20
 MIN_POST_DELAY_MINUTES = 30
 MAX_POST_DELAY_MINUTES = 120
+# --- End User Configuration ---
 
 # Basic logging setup
 logging.basicConfig(
@@ -614,24 +626,21 @@ def main():
     logging.info("Instagram bot started. Initializing...")
 
     # --- Configuration Access and Checks ---
-    global CITY_CODES, IMGBB_API_KEY, INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD, DAILY_POST_LIMIT, MIN_POST_DELAY_MINUTES, MAX_POST_DELAY_MINUTES
+    # Variables are now loaded globally from .env or defaults defined above.
 
-    # For testing purposes, override CITY_CODES to a single city to limit processing.
-    # In production, this line would be removed or CITY_CODES populated from config/user.
-    # CITY_CODES = ["PA"] # Ensure this is commented out for production if set globally
-    # logging.warning("Using a limited CITY_CODES for testing: %s", CITY_CODES)
+    # Create screenshots directory
+    os.makedirs("screenshots", exist_ok=True)
+    logging.info("Ensured 'screenshots' directory exists.")
 
-
-    if not CITY_CODES:
-        logging.error("CITY_CODES list is empty. Please populate it in the configuration. Exiting.")
+    if not CITY_CODES: # This check is now against the potentially .env loaded list
+        logging.error("CITY_CODES list is empty (after trying to load from .env). Please populate it. Exiting.")
         return
 
-    # Dummy credential check
-    DUMMY_IMGBB_API_KEY_PLACEHOLDER = "dummy_imgbb_api_key_12345" # A distinct placeholder if needed for checks
-    if not IMGBB_API_KEY or IMGBB_API_KEY == DUMMY_IMGBB_API_KEY_PLACEHOLDER:
-        logging.warning("IMGBB_API_KEY is not set or is a dummy value. Image uploads will fail.")
+    # Credential checks
+    # if not IMGBB_API_KEY: # Removed
+    #     logging.warning("IMGBB_API_KEY is not set in .env. Image uploads will fail.")
     if not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD:
-        logging.warning("INSTAGRAM_USERNAME or INSTAGRAM_PASSWORD are not set. Instagram posts will fail.")
+        logging.warning("INSTAGRAM_USERNAME or INSTAGRAM_PASSWORD are not set in .env. Instagram posts will fail.")
 
     posted_invaders_log_file = "posted_invaders.csv"
     if not os.path.exists(posted_invaders_log_file):
@@ -666,9 +675,11 @@ def main():
     logging.info(f"Successfully processed data for {len(invaders_data)} total invaders.")
 
     # --- Main Loop through Cities ---
-    screenshot_path = "temp_city_screenshot.png" # Define once
+    # screenshot_path = "temp_city_screenshot.png" # Old path
 
     for city_code_idx, city_code in enumerate(CITY_CODES):
+        screenshot_path = os.path.join("screenshots", f"{city_code.lower()}_map_screenshot.png") # New path per city
+
         if daily_post_count >= DAILY_POST_LIMIT:
             logging.info(f"Daily post limit of {DAILY_POST_LIMIT} reached. Stopping further posts for today.")
             break
@@ -773,13 +784,318 @@ def main():
     # Cleanup Screenshot after all processing for a city (or all cities if screenshot_path is global)
     # Moved cleanup to after all loops if screenshot_path is global for all cities.
     # If screenshot is per city and path changes, then it should be inside city loop.
-    # Current implementation uses one `screenshot_path`.
-    if os.path.exists(screenshot_path):
+    # For now, I will *not* automatically delete them from screenshots/ as they might be useful.
+    # The .gitignore will prevent them from being committed.
+
+    logging.info("Instagram bot run completed.")
+
+# Remove old single screenshot function
+# def take_city_screenshot(city_code: str, output_path: str) -> bool: ...
+
+def take_screenshots_for_cities(city_codes: list, invaders_data: dict, base_output_dir: str) -> dict:
+    """
+    Takes screenshots for a list of cities by navigating on a single map page.
+    One browser instance is opened, and JavaScript is used to navigate between cities.
+
+    Args:
+        city_codes (list): A list of city codes (e.g., ["PA", "LDN"]).
+        invaders_data (dict): Consolidated invader data to count invaders per city for filenames.
+        base_output_dir (str): The base directory to save screenshots (e.g., "screenshots").
+
+    Returns:
+        dict: A dictionary mapping city_code to its screenshot path. Empty if errors occur.
+    """
+    logging.info(f"Starting screenshot process for {len(city_codes)} cities.")
+    screenshot_paths = {}
+
+    chrome_options = ChromeOptions()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1200") # Adjusted for potentially taller maps
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-popup-blocking")
+
+    driver = None
+    try:
+        logging.info("Initializing Chrome WebDriver for multi-city screenshots...")
         try:
-            os.remove(screenshot_path)
-            logging.info(f"Temporary screenshot {screenshot_path} removed.")
-        except OSError as e:
-            logging.error(f"Error removing temporary screenshot {screenshot_path}: {e}")
+            driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
+        except Exception as e:
+            logging.error(f"Failed to initialize WebDriver with manager: {e}")
+            logging.info("Attempting to use chromedriver from PATH...")
+            try:
+                driver = webdriver.Chrome(options=chrome_options)
+            except Exception as e_path:
+                logging.error(f"Failed to initialize WebDriver from PATH: {e_path}")
+                return screenshot_paths # Return empty if driver fails
+
+        logging.info("WebDriver initialized. Navigating to base map page...")
+        driver.get("https://chborel.ch/mapinvaders/")
+
+        logging.info("Waiting for main map element (ID: 'map') to be present...")
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, "map")))
+        logging.info("Main map element is present. Initial page load settling for 5 seconds...")
+        time.sleep(5) # Allow initial map JavaScript to load and settle
+
+        for city_code in city_codes:
+            logging.info(f"Processing screenshot for city: {city_code.upper()}")
+
+            js_command = f"navigateToCity('{city_code.upper()}');"
+            logging.info(f"Executing JS: {js_command}")
+            driver.execute_script(js_command)
+
+            # Wait for navigation and map rendering for the specific city
+            # This is a critical part; a fixed delay is a starting point.
+            # More advanced checks could involve looking for city-specific markers if their structure is known
+            # or waiting for some element that changes upon city navigation.
+            city_render_delay = 15 # Increased delay after JS navigation
+            logging.info(f"Waiting {city_render_delay} seconds for {city_code.upper()} map to render after navigateToCity...")
+            time.sleep(city_render_delay)
+
+            # Optional: Try to wait for markers again, specific to Leaflet if possible
+            try:
+                logging.info(f"Waiting for at least one invader marker for {city_code.upper()}...")
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "img.leaflet-marker-icon"))
+                )
+                logging.info(f"At least one invader marker found for {city_code.upper()}.")
+                time.sleep(5) # Extra short delay if markers found
+            except Exception: # TimeoutException
+                logging.warning(f"No invader markers detected for {city_code.upper()} within timeout. Screenshot might be empty or map not fully loaded.")
+
+            # Determine invader count for filename
+            invader_count = sum(1 for inv_id in invaders_data if inv_id.upper().startswith(city_code.upper() + "_"))
+
+            output_filename = f"{city_code.lower()}_invaders_{invader_count}.png"
+            output_path = os.path.join(base_output_dir, output_filename)
+
+            logging.info(f"Taking screenshot for {city_code.upper()} ({invader_count} invaders) -> {output_path}")
+            driver.save_screenshot(output_path)
+            screenshot_paths[city_code] = output_path
+            logging.info(f"Screenshot for {city_code.upper()} saved.")
+
+            # Small random delay between city navigations
+            inter_city_delay = random.uniform(2, 5)
+            logging.info(f"Waiting {inter_city_delay:.2f} seconds before next city...")
+            time.sleep(inter_city_delay)
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"RequestException during WebDriver setup for multi-city: {e}")
+    except Exception as e:
+        logging.error(f"An error occurred during multi-city screenshot generation: {e}", exc_info=True)
+    finally:
+        if driver:
+            logging.info("Quitting shared WebDriver for multi-city screenshots.")
+            driver.quit()
+
+    return screenshot_paths
+
+# Remove ImgBB upload function
+# def upload_to_imgbb(image_path: str, api_key: str, expiration_seconds: int = 3600) -> str | None: ...
+
+
+def post_to_instagram(local_image_path: str, caption: str, username: str, password: str) -> str | None:
+    """
+    Posts an image to Instagram using the instagrapi library from a local file path.
+
+    Args:
+        local_image_path (str): The local path of the image to post.
+        caption (str): The caption for the Instagram post.
+        username (str): Instagram username.
+        password (str): Instagram password.
+
+    Returns:
+        str | None: The media ID (pk) of the post if successful, otherwise None.
+    """
+    if not username or not password:
+        logging.error("Instagram username or password not provided. Cannot post.")
+        return None
+
+    logging.info(f"Attempting to post image from local path {local_image_path} to Instagram account {username}.")
+    try:
+        from instagrapi import Client
+        from instagrapi.exceptions import LoginRequired, TwoFactorRequired, BadPassword
+    except ImportError:
+        logging.error("instagrapi library is not installed. Please install it: pip install instagrapi")
+        return None
+
+    client = Client()
+    try:
+        logging.info("Logging into Instagram...")
+        client.login(username, password)
+        logging.info("Successfully logged into Instagram.")
+        logging.info(f"Uploading photo from local path: {local_image_path} with caption: '{caption[:30]}...'")
+        media = client.photo_upload(path=local_image_path, caption=caption) # Changed path argument
+
+        if media and hasattr(media, 'pk'):
+            logging.info(f"Successfully posted to Instagram. Media PK: {media.pk}")
+            return str(media.pk)
+        else:
+            logging.error("Instagram post failed. Media object was not returned or has no PK.")
+            return None
+    except (LoginRequired, BadPassword) as e:
+        logging.error(f"Instagram login failed: {e}. Please check credentials or session. 2FA might be an issue if not handled.")
+        return None
+    except TwoFactorRequired as e:
+        logging.error(f"Instagram login failed due to 2FA being required: {e}. The bot needs to be adapted for 2FA.")
+        return None
+    except Exception as e:
+        logging.error(f"An error occurred during Instagram posting: {e}", exc_info=True)
+        return None
+
+def main():
+    """Main function to run the Instagram bot."""
+    logging.info("Instagram bot started. Initializing...")
+
+    # --- Configuration Access and Checks ---
+    # Variables are now loaded globally from .env or defaults defined above.
+
+    # Create screenshots directory
+    os.makedirs("screenshots", exist_ok=True)
+    logging.info("Ensured 'screenshots' directory exists.")
+
+    if not CITY_CODES: # This check is now against the potentially .env loaded list
+        logging.error("CITY_CODES list is empty (after trying to load from .env). Please populate it. Exiting.")
+        return
+
+    # Credential checks
+    # if not IMGBB_API_KEY: # Removed
+    #     logging.warning("IMGBB_API_KEY is not set in .env. Image uploads will fail.")
+    if not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD:
+        logging.warning("INSTAGRAM_USERNAME or INSTAGRAM_PASSWORD are not set in .env. Instagram posts will fail.")
+
+    posted_invaders_log_file = "posted_invaders.csv"
+    if not os.path.exists(posted_invaders_log_file):
+        try:
+            with open(posted_invaders_log_file, "w", encoding="utf-8") as f:
+                f.write("city_code,invader_id,media_id,timestamp_utc\n")
+            logging.info(f"Created posted invaders log file: {posted_invaders_log_file}")
+        except IOError as e:
+            logging.error(f"Failed to create posted invaders log file: {e}. Exiting.")
+            return
+
+    daily_post_count = 0
+
+    # --- Data Extraction ---
+    logging.info("Fetching and consolidating invader data...")
+    data_urls = get_data_urls_from_main_page()
+    if not data_urls:
+        logging.error("Failed to get data URLs. Exiting.")
+        return
+
+    json_datasets = fetch_json_data(data_urls)
+    if not any(json_datasets.values()):
+        logging.error("Failed to fetch JSON datasets or all datasets are empty. Exiting.")
+        return
+
+    invaders_data = consolidate_data_python(json_datasets)
+    if not invaders_data:
+        logging.error("Failed to consolidate invader data or no data found. Exiting.")
+        return
+    logging.info(f"Successfully processed data for {len(invaders_data)} total invaders.")
+
+    # --- Pre-take all screenshots ---
+    logging.info("Taking screenshots for all specified cities...")
+    city_screenshot_map = take_screenshots_for_cities(CITY_CODES, invaders_data, "screenshots")
+
+    if not city_screenshot_map:
+        logging.error("Failed to take any screenshots. Exiting bot run.")
+        return
+    logging.info(f"Screenshots taken and mapped: {city_screenshot_map}")
+
+    # --- Main Loop through Cities ---
+    for city_code_idx, city_code in enumerate(CITY_CODES):
+        if daily_post_count >= DAILY_POST_LIMIT:
+            logging.info(f"Daily post limit of {DAILY_POST_LIMIT} reached. Stopping further posts for today.")
+            break
+
+        logging.info(f"Processing city: {city_code.upper()} ({city_code_idx + 1}/{len(CITY_CODES)})")
+
+        screenshot_path = city_screenshot_map.get(city_code)
+        if not screenshot_path or not os.path.exists(screenshot_path):
+            logging.error(f"Screenshot for {city_code.upper()} not found or path is invalid ({screenshot_path}). Skipping this city.")
+            continue
+
+        city_invader_ids = [
+            inv_id for inv_id in invaders_data
+            if inv_id.upper().startswith(city_code.upper() + "_")
+        ]
+
+        if not city_invader_ids:
+            logging.info(f"No invaders found for city code {city_code.upper()} (data might be missing post-consolidation). Skipping.")
+            continue
+
+        logging.info(f"Found {len(city_invader_ids)} invaders for {city_code.upper()}. Using screenshot: {screenshot_path}")
+
+        # Prepare Hashtags and Captions
+        city_invader_hashtags = [f"#{inv_id.replace('_', '')}" for inv_id in city_invader_ids]
+        max_hashtags_per_post = 20
+
+        num_posts_for_city = (len(city_invader_hashtags) + max_hashtags_per_post - 1) // max_hashtags_per_post
+        logging.info(f"City {city_code.upper()} will require {num_posts_for_city} post(s).")
+
+        for i in range(num_posts_for_city):
+            if daily_post_count >= DAILY_POST_LIMIT:
+                logging.info(f"Daily post limit reached during segments for {city_code.upper()}.")
+                break
+
+            start_index = i * max_hashtags_per_post
+            end_index = start_index + max_hashtags_per_post
+
+            current_hashtags_segment = city_invader_hashtags[start_index:end_index]
+            current_invaders_segment_ids = city_invader_ids[start_index:end_index]
+
+            caption_text = (f"Space Invaders in {city_code.upper()}! "
+                            f"Segment {i+1}/{num_posts_for_city}.\n"
+                            f"{' '.join(current_hashtags_segment)}\n\n"
+                            f"#SpaceInvaders #Invader #MapInvaders #{city_code.upper()}Invaders #StreetArt{city_code.upper()}")
+
+            logging.info(f"Preparing post {i+1}/{num_posts_for_city} for {city_code.upper()} with {len(current_hashtags_segment)} invader hashtags.")
+
+            # Upload to ImgBB - REMOVED
+            # image_url = upload_to_imgbb(screenshot_path, IMGBB_API_KEY)
+            # if image_url is None:
+            #     logging.error(f"ImgBB upload failed for {city_code.upper()} segment {i+1}. Skipping further posts for this city.")
+            #     break
+
+
+            if not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD:
+                logging.error(f"Instagram credentials missing for {city_code.upper()}. Skipping actual post attempt for segment {i+1}.")
+                media_id = None # Ensure media_id is None if we don't attempt
+            else:
+                media_id = post_to_instagram(screenshot_path, caption_text, INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
+
+            if media_id:
+                logging.info(f"Successfully posted segment {i+1} for {city_code.upper()}. Media ID: {media_id}")
+                daily_post_count += 1
+                try:
+                    with open(posted_invaders_log_file, "a", encoding="utf-8") as f_log:
+                        for invader_id in current_invaders_segment_ids:
+                            f_log.write(f"{city_code},{invader_id},{media_id},{datetime.utcnow().isoformat()}\n")
+                    logging.info(f"Logged {len(current_invaders_segment_ids)} invaders for media ID {media_id}.")
+                except IOError as e:
+                    logging.error(f"Failed to write to posted invaders log: {e}")
+
+                is_last_segment_for_city = (i == num_posts_for_city - 1)
+                is_last_city = (city_code_idx == len(CITY_CODES) - 1)
+                if not (is_last_segment_for_city and is_last_city) and daily_post_count < DAILY_POST_LIMIT :
+                    delay_seconds = random.randint(MIN_POST_DELAY_MINUTES * 60, MAX_POST_DELAY_MINUTES * 60)
+                    logging.info(f"Delaying next post by {delay_seconds // 60} minutes ({delay_seconds} seconds).")
+                    time.sleep(delay_seconds)
+            else:
+                logging.error(f"Failed to post segment {i+1} for {city_code.upper()} to Instagram (check logs from post_to_instagram).")
+                # Potentially break if a real post fails, to avoid hammering the API or if it's a persistent auth issue.
+                # For now, this test will likely fail here with dummy creds, which is fine.
+                # logging.warning(f"Stopping further segments for city {city_code.upper()} due to Instagram post failure.")
+                # break # Uncomment if strict stop on failure is desired
+
+            # This warning is now inside post_to_instagram or handled by the initial check
+            # if i == 0 and (not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD):
+            #     logging.warning(f"Instagram credentials missing, actual posting for {city_code.upper()} would fail or be skipped.")
+
 
     logging.info("Instagram bot run completed.")
 

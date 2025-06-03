@@ -129,3 +129,5 @@ dmypy.json
 temp_screenshot.jpg
 posted_invaders.csv
 bot.log
+screenshots/
+.env
