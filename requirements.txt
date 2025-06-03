@@ -3,4 +3,5 @@ selenium
 webdriver-manager
 instagrapi
 python-dotenv
+Pillow>=8.1.1
 # A line commenting that a temporary image hosting library might be added later

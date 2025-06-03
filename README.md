@@ -51,9 +51,9 @@ This bot automates the process of posting screenshots of city maps from [chborel
         ```
     *   **`INSTAGRAM_USERNAME`**: Your Instagram username.
     *   **`INSTAGRAM_PASSWORD`**: Your Instagram password.
-    *   **`CITY_CODES`**: A comma-separated string of city codes (e.g., "PAR" for Paris, "ROM" for Rome, "LDN" for London) you want the bot to process. Do not use spaces between codes.
+    *   **`CITY_CODES`**: A comma-separated string of city codes (e.g., "PAR" for Paris, "ROM" for Rome, "LDN" for London) you want the bot to process. Do not use spaces between codes. This is primarily used by `instagram_bot.py`.
 
-    The bot also has other configurations like `DAILY_POST_LIMIT` directly in the `instagram_bot.py` script, which you can modify if needed.
+    The bot also has other configurations like `DAILY_POST_LIMIT` directly in the `instagram_bot.py` script, which you can modify if needed. For `offline_poster.py`, some of these can also be set in the `.env` file (see specific section below).
 
 ## Running the Bot
 
@@ -66,7 +66,7 @@ The bot will create a `screenshots/` directory if it doesn't exist, then start p
 ## Output Files
 
 *   `screenshots/`: This directory will store the screenshots taken by the bot. Filenames are in the format `citycode_invaders_count.png` (e.g., `pa_invaders_1545.png`).
-*   `posted_invaders.csv`: A CSV file logging each invader that has been successfully included in an Instagram post. Columns include `city_code`, `invader_id`, `media_id`, and `timestamp_utc`.
+*   `posted_invaders.csv`: A CSV file logging each invader that has been successfully included in an Instagram post by `instagram_bot.py`. Columns include `city_code`, `invader_id`, `media_id`, and `timestamp_utc`.
 *   `bot.log` (if file logging is explicitly configured in the script, otherwise logs to console): General operational logs.
 
 
@@ -83,4 +83,53 @@ The bot will create a `screenshots/` directory if it doesn't exist, then start p
     *   Instagram has its own API rate limits. If the bot makes too many requests in a short period, it might get temporarily blocked. The randomized delays are in place to mitigate this, but be mindful if running for many cities or with very short delays.
 *   **Instagram API Changes:** Instagram frequently updates its API. The `instagrapi` library attempts to keep up, but future changes could potentially break posting functionality.
 *   **Error Handling:** The bot includes error handling for common issues, but unhandled exceptions might still occur. Check the console logs for details if the bot stops unexpectedly.
+
+---
+
+## Offline Instagram Poster (`offline_poster.py`)
+
+This script provides an alternative way to post to Instagram using pre-downloaded images and a predefined list of invader IDs. It does **not** scrape any websites or take new screenshots.
+
+### Use Case for `offline_poster.py`
+
+Use this script if you have:
+1.  A collection of images already saved in the `screenshots/` directory. Each image filename must start with the city ID prefix (e.g., `aix_myphoto.png`, `par_invaders.jpg`).
+2.  A text file named `invaders.txt` in the root directory, containing a comma-separated list of all invader IDs you wish to associate with posts (e.g., `AIX_01,AIX_02,PAR_01,...`).
+
+### How `offline_poster.py` Works
+
+1.  Reads all invader IDs from `invaders.txt`.
+2.  Groups these invader IDs by their city prefix (e.g., "AIX", "PAR").
+3.  For each city:
+    *   It looks for a corresponding image in the `screenshots/` directory (e.g., for "AIX", it searches for `aix_*.png` or `aix_*.jpg` etc.). It expects exactly one image per city. If no image or multiple images are found, that city is skipped, and the issue is logged in `missing_images.txt`.
+    *   It then creates Instagram posts using that city's image.
+    *   The caption for each post is: "🔗 Map link in bio" followed by up to 21 invader hashtags from `invaders.txt` for that city, plus a list of generic hashtags (`#mapinvaders`, `#invaderwashere`, etc.).
+    *   If a city has more than 21 invader IDs, the script will post the *same city image* multiple times, each time with a different batch of 21 invader-specific hashtags, until all specified invaders for that city are covered in posts.
+4.  The script uses the same Instagram credentials from your `.env` file and respects the `DAILY_POST_LIMIT`, `MIN_POST_DELAY_MINUTES`, and `MAX_POST_DELAY_MINUTES` settings (either from `.env` or defaults in the script).
+5.  Successfully posted invader segments are logged to `offline_posted_log.csv`.
+
+### Setup for `offline_poster.py`
+
+1.  **`.env` File:** Ensure your `.env` file is configured with `INSTAGRAM_USERNAME` and `INSTAGRAM_PASSWORD` as described in the main setup section. You can also add/override `DAILY_POST_LIMIT`, `MIN_POST_DELAY_MINUTES`, `MAX_POST_DELAY_MINUTES` in the `.env` file if desired (see `.env.example` for formatting).
+2.  **`invaders.txt` File:**
+    *   Create a file named `invaders.txt` in the root directory of the project.
+    *   Add all invader IDs you want to post, separated by commas. For example:
+        ```
+        AIX_01,AIX_02,AIX_03,PAR_01,PAR_02,LON_01,LON_02,LON_03,LON_04
+        ```
+3.  **`screenshots/` Directory:**
+    *   Make sure the `screenshots/` directory exists in the root of the project.
+    *   Place your pre-downloaded images here. The filename for each city's image **must** start with the city ID in lowercase, followed by an underscore (e.g., `aix_01.png`, `par_map.jpg`). The script will pick the first one it finds if multiple start with the same prefix, but it's designed with the expectation of one image per city.
+
+### Running `offline_poster.py`
+
+```bash
+python offline_poster.py
+```
+Logs will be printed to the console.
+
+### Output Files for `offline_poster.py`
+
+*   `offline_posted_log.csv`: Logs successfully posted invader ID segments with their `media_id` and timestamp.
+*   `missing_images.txt`: Lists city IDs for which a corresponding image was not found (or was ambiguous) in the `screenshots/` directory.
 ```
