@@ -277,7 +277,7 @@ def run_offline_poster():
                 logging.error(f"Could not write to {MISSING_IMAGES_LOG}: {e}")
             continue # Move to the next city
 
-        invader_specific_hashtags = [f"#{inv_id.replace('_', '')}" for inv_id in invader_ids_for_city]
+        invader_specific_hashtags = [f"#{inv_id}" for inv_id in invader_ids_for_city]
         num_posts_for_city = (len(invader_specific_hashtags) + MAX_HASHTAGS_PER_POST - 1) // MAX_HASHTAGS_PER_POST
         logging.info(f"City {city_id} requires {num_posts_for_city} post(s) for {len(invader_ids_for_city)} invaders.")
 

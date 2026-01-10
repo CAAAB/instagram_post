@@ -86,17 +86,17 @@ The bot will create a `screenshots/` directory if it doesn't exist, then start p
 
 ---
 
-## Offline Instagram Poster (`offline_poster.py`)
+## Offline Instagram Poster (`offline_poster_v2.py`)
 
 This script provides an alternative way to post to Instagram using pre-downloaded images and a predefined list of invader IDs. It does **not** scrape any websites or take new screenshots.
 
-### Use Case for `offline_poster.py`
+### Use Case for `offline_poster_v2.py`
 
 Use this script if you have:
 1.  A collection of images already saved in the `screenshots/` directory. Each image filename must start with the city ID prefix (e.g., `aix_myphoto.png`, `par_invaders.jpg`).
 2.  A text file named `invaders.txt` in the root directory, containing a comma-separated list of all invader IDs you wish to associate with posts (e.g., `AIX_01,AIX_02,PAR_01,...`).
 
-### How `offline_poster.py` Works
+### How `offline_poster_v2.py` Works
 
 1.  Reads all invader IDs from `invaders.txt`.
 2.  Groups these invader IDs by their city prefix (e.g., "AIX", "PAR").
@@ -107,8 +107,9 @@ Use this script if you have:
     *   If a city has more than 21 invader IDs, the script will post the *same city image* multiple times, each time with a different batch of 21 invader-specific hashtags, until all specified invaders for that city are covered in posts.
 4.  The script uses the same Instagram credentials from your `.env` file and respects the `DAILY_POST_LIMIT`, `MIN_POST_DELAY_MINUTES`, and `MAX_POST_DELAY_MINUTES` settings (either from `.env` or defaults in the script).
 5.  Successfully posted invader segments are logged to `offline_posted_log.csv`.
+6.  **Persistent Daily Limit:** The script checks `offline_posted_log.csv` at startup to count how many posts were already made today (UTC). It respects the `DAILY_POST_LIMIT` across multiple runs. You can manually add rows to this CSV if you want to account for posts made outside this tool.
 
-### Setup for `offline_poster.py`
+### Setup for `offline_poster_v2.py`
 
 1.  **`.env` File:** Ensure your `.env` file is configured with `INSTAGRAM_USERNAME` and `INSTAGRAM_PASSWORD` as described in the main setup section. You can also add/override `DAILY_POST_LIMIT`, `MIN_POST_DELAY_MINUTES`, `MAX_POST_DELAY_MINUTES` in the `.env` file if desired (see `.env.example` for formatting).
 2.  **`invaders.txt` File:**
@@ -121,14 +122,14 @@ Use this script if you have:
     *   Make sure the `screenshots/` directory exists in the root of the project.
     *   Place your pre-downloaded images here. The filename for each city's image **must** start with the city ID in lowercase, followed by an underscore (e.g., `aix_01.png`, `par_map.jpg`). The script will pick the first one it finds if multiple start with the same prefix, but it's designed with the expectation of one image per city.
 
-### Running `offline_poster.py`
+### Running `offline_poster_v2.py`
 
 ```bash
-python offline_poster.py
+python offline_poster_v2.py
 ```
 Logs will be printed to the console.
 
-### Output Files for `offline_poster.py`
+### Output Files for `offline_poster_v2.py`
 
 *   `offline_posted_log.csv`: Logs successfully posted invader ID segments with their `media_id` and timestamp.
 *   `missing_images.txt`: Lists city IDs for which a corresponding image was not found (or was ambiguous) in the `screenshots/` directory.
